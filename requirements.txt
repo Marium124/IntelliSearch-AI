@@ -5,6 +5,7 @@ langchain-groq
 langchain-text-splitters
 streamlit
 duckduckgo-search
+ddgs
 arxiv
 wikipedia
 bs4
@@ -23,4 +24,5 @@ numexpr
 python-dotenv
 ipykernel
 pydantic
+
 faiss-cpu
