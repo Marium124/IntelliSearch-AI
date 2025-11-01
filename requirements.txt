@@ -25,4 +25,5 @@ python-dotenv
 ipykernel
 pydantic
 faiss-cpu
+langchain-hub
 
