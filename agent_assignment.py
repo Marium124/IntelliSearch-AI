@@ -1,5 +1,5 @@
 import streamlit as st
-from langchain import hub
+from langchain_hub import pull as hub_pull
 from langchain.agents import AgentExecutor, create_react_agent
 from langchain_groq import ChatGroq
 from langchain_community.utilities import ArxivAPIWrapper, WikipediaAPIWrapper
@@ -70,8 +70,8 @@ if groq_api_key:
         # Initialize LLM
         llm = ChatGroq(temperature=0, model_name="mixtral-8x7b-32768")
 
-        # Get the prompt template
-        prompt = hub.pull("hwchase17/react")
+        # Get the prompt template from hub
+        prompt = hub_pull("hwchase17/react")
         
         # Add memory to prompt
         prompt.messages.insert(0, MessagesPlaceholder(variable_name="chat_history"))
@@ -90,18 +90,18 @@ if groq_api_key:
         )
 
         # Chat input
-        if prompt := st.chat_input("Ask me to research something..."):
+        if prompt_input := st.chat_input("Ask me to research something..."):
             # Add user message to chat history
-            st.session_state.messages.append({"role": "user", "content": prompt})
+            st.session_state.messages.append({"role": "user", "content": prompt_input})
             with st.chat_message("user"):
-                st.markdown(prompt)
+                st.markdown(prompt_input)
 
             # Generate agent response
             with st.chat_message("assistant"):
                 st_callback = StreamlitCallbackHandler(st.container())
                 try:
                     response = agent_executor.invoke(
-                        {"input": prompt},
+                        {"input": prompt_input},
                         {"callbacks": [st_callback]}
                     )
                     output = response["output"]
