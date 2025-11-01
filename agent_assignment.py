@@ -1,12 +1,12 @@
 import streamlit as st
-from langchain.agents import initialize_agent
-from langchain.agents import AgentType
 from langchain_groq import ChatGroq
 from langchain_community.utilities import ArxivAPIWrapper, WikipediaAPIWrapper
 from langchain_community.tools import ArxivQueryRun, WikipediaQueryRun
 from langchain.agents import Tool
-from langchain.callbacks import StreamlitCallbackHandler
+from langchain.schema import SystemMessage
 from langchain.memory import ConversationBufferMemory
+from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain.chains import LLMChain
 import os
 
 # Set up the page
@@ -32,7 +32,7 @@ with st.sidebar:
     - **Wikipedia** for general knowledge
     """)
 
-# Initialize session state for chat history
+# Initialize session state
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "memory" not in st.session_state:
@@ -43,7 +43,7 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# Only initialize agent if API key is provided
+# Only proceed if API key is provided
 if groq_api_key:
     try:
         # Initialize tools
@@ -53,32 +53,55 @@ if groq_api_key:
         arxiv_tool = ArxivQueryRun(api_wrapper=arxiv_wrapper)
         wikipedia_tool = WikipediaQueryRun(api_wrapper=wikipedia_wrapper)
 
-        tools = [
-            Tool(
-                name="Arxiv",
-                func=arxiv_tool.run,
-                description="Useful for searching academic papers and research articles from Arxiv. Use when you need to find research papers, scientific articles, or academic publications."
-            ),
-            Tool(
-                name="Wikipedia", 
-                func=wikipedia_tool.run,
-                description="Useful for searching general knowledge and information from Wikipedia. Use when you need factual information, definitions, or overviews of topics."
-            )
-        ]
-
         # Initialize LLM
         llm = ChatGroq(temperature=0, model_name="mixtral-8x7b-32768")
 
-        # Initialize agent with the traditional approach
-        agent = initialize_agent(
-            tools=tools,
+        # Create a system prompt that instructs the LLM to use tools
+        system_message = SystemMessage(content="""You are a research assistant with access to Arxiv and Wikipedia. 
+        When users ask questions, you can search for information using these tools:
+        
+        - Use Arxiv for academic papers, research articles, and scientific publications
+        - Use Wikipedia for general knowledge, definitions, and overviews of topics
+        
+        Always cite your sources and provide accurate information.""")
+
+        # Create prompt template
+        prompt = ChatPromptTemplate.from_messages([
+            system_message,
+            MessagesPlaceholder(variable_name="chat_history"),
+            ("human", "{input}"),
+        ])
+
+        # Create chain
+        chain = LLMChain(
             llm=llm,
-            agent=AgentType.CHAT_ZERO_SHOT_REACT_DESCRIPTION,
+            prompt=prompt,
             memory=st.session_state.memory,
-            verbose=True,
-            handle_parsing_errors=True,
-            max_iterations=5
+            verbose=True
         )
+
+        # Manual tool calling function
+        def process_query_with_tools(query):
+            """Process query by manually checking if tools are needed and using them"""
+            
+            # First, let the LLM analyze the query
+            analysis = chain.run(input=f"Analyze this query and tell me which tool would be best: {query}. Just respond with 'Arxiv', 'Wikipedia', or 'Neither'.")
+            
+            tool_response = ""
+            
+            # Use appropriate tool based on analysis
+            if "arxiv" in analysis.lower():
+                tool_response = arxiv_tool.run(query)
+            elif "wikipedia" in analysis.lower():
+                tool_response = wikipedia_tool.run(query)
+            else:
+                # If no specific tool needed, just respond normally
+                return chain.run(input=query)
+            
+            # Combine tool response with original query for final answer
+            final_response = chain.run(input=f"Based on this research: {tool_response}\n\nNow answer the original question: {query}")
+            
+            return final_response
 
         # Chat input
         if user_input := st.chat_input("Ask me to research something..."):
@@ -87,11 +110,13 @@ if groq_api_key:
             with st.chat_message("user"):
                 st.markdown(user_input)
 
-            # Generate agent response
+            # Generate response
             with st.chat_message("assistant"):
-                st_callback = StreamlitCallbackHandler(st.container())
                 try:
-                    response = agent.run(user_input, callbacks=[st_callback])
+                    # Show loading indicator
+                    with st.spinner("Researching..."):
+                        response = process_query_with_tools(user_input)
+                    
                     st.markdown(response)
                     
                     # Add assistant response to chat history
@@ -103,7 +128,7 @@ if groq_api_key:
                     st.session_state.messages.append({"role": "assistant", "content": error_msg})
 
     except Exception as e:
-        st.error(f"Error initializing agent: {str(e)}")
+        st.error(f"Error initializing tools: {str(e)}")
         st.info("Please check your API key and try again.")
 else:
     st.info("👆 Please enter your Groq API key in the sidebar to start using IntelliSearch AI.")
