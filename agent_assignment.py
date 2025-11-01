@@ -1,5 +1,4 @@
 import streamlit as st
-from langchain_hub import pull as hub_pull
 from langchain.agents import AgentExecutor, create_react_agent
 from langchain_groq import ChatGroq
 from langchain_community.utilities import ArxivAPIWrapper, WikipediaAPIWrapper
@@ -7,7 +6,7 @@ from langchain_community.tools import ArxivQueryRun, WikipediaQueryRun
 from langchain.agents import Tool
 from langchain.callbacks import StreamlitCallbackHandler
 from langchain.memory import ConversationBufferMemory
-from langchain.prompts import MessagesPlaceholder
+from langchain.prompts import PromptTemplate
 import os
 
 # Set up the page
@@ -70,11 +69,31 @@ if groq_api_key:
         # Initialize LLM
         llm = ChatGroq(temperature=0, model_name="mixtral-8x7b-32768")
 
-        # Get the prompt template from hub
-        prompt = hub_pull("hwchase17/react")
-        
-        # Add memory to prompt
-        prompt.messages.insert(0, MessagesPlaceholder(variable_name="chat_history"))
+        # Create ReAct prompt template manually (no langchain-hub needed)
+        prompt_template = """Answer the following questions as best you can. You have access to the following tools:
+
+{tools}
+
+Use the following format:
+
+Question: the input question you must answer
+Thought: you should always think about what to do
+Action: the action to take, should be one of [{tool_names}]
+Action Input: the input to the action
+Observation: the result of the action
+... (this Thought/Action/Action Input/Observation can repeat N times)
+Thought: I now know the final answer
+Final Answer: the final answer to the original question
+
+Begin!
+
+Previous conversation history:
+{chat_history}
+
+Question: {input}
+Thought: {agent_scratchpad}"""
+
+        prompt = PromptTemplate.from_template(prompt_template)
 
         # Create agent
         agent = create_react_agent(llm, tools, prompt)
@@ -90,18 +109,18 @@ if groq_api_key:
         )
 
         # Chat input
-        if prompt_input := st.chat_input("Ask me to research something..."):
+        if user_input := st.chat_input("Ask me to research something..."):
             # Add user message to chat history
-            st.session_state.messages.append({"role": "user", "content": prompt_input})
+            st.session_state.messages.append({"role": "user", "content": user_input})
             with st.chat_message("user"):
-                st.markdown(prompt_input)
+                st.markdown(user_input)
 
             # Generate agent response
             with st.chat_message("assistant"):
                 st_callback = StreamlitCallbackHandler(st.container())
                 try:
                     response = agent_executor.invoke(
-                        {"input": prompt_input},
+                        {"input": user_input},
                         {"callbacks": [st_callback]}
                     )
                     output = response["output"]
