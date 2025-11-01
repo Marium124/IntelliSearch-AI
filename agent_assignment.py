@@ -1,12 +1,12 @@
 import streamlit as st
-from langchain.agents import AgentExecutor, create_react_agent
+from langchain.agents import initialize_agent
+from langchain.agents import AgentType
 from langchain_groq import ChatGroq
 from langchain_community.utilities import ArxivAPIWrapper, WikipediaAPIWrapper
 from langchain_community.tools import ArxivQueryRun, WikipediaQueryRun
 from langchain.agents import Tool
 from langchain.callbacks import StreamlitCallbackHandler
 from langchain.memory import ConversationBufferMemory
-from langchain.prompts import PromptTemplate
 import os
 
 # Set up the page
@@ -69,39 +69,11 @@ if groq_api_key:
         # Initialize LLM
         llm = ChatGroq(temperature=0, model_name="mixtral-8x7b-32768")
 
-        # Create ReAct prompt template manually (no langchain-hub needed)
-        prompt_template = """Answer the following questions as best you can. You have access to the following tools:
-
-{tools}
-
-Use the following format:
-
-Question: the input question you must answer
-Thought: you should always think about what to do
-Action: the action to take, should be one of [{tool_names}]
-Action Input: the input to the action
-Observation: the result of the action
-... (this Thought/Action/Action Input/Observation can repeat N times)
-Thought: I now know the final answer
-Final Answer: the final answer to the original question
-
-Begin!
-
-Previous conversation history:
-{chat_history}
-
-Question: {input}
-Thought: {agent_scratchpad}"""
-
-        prompt = PromptTemplate.from_template(prompt_template)
-
-        # Create agent
-        agent = create_react_agent(llm, tools, prompt)
-
-        # Create agent executor
-        agent_executor = AgentExecutor(
-            agent=agent,
+        # Initialize agent with the traditional approach
+        agent = initialize_agent(
             tools=tools,
+            llm=llm,
+            agent=AgentType.CHAT_ZERO_SHOT_REACT_DESCRIPTION,
             memory=st.session_state.memory,
             verbose=True,
             handle_parsing_errors=True,
@@ -119,15 +91,11 @@ Thought: {agent_scratchpad}"""
             with st.chat_message("assistant"):
                 st_callback = StreamlitCallbackHandler(st.container())
                 try:
-                    response = agent_executor.invoke(
-                        {"input": user_input},
-                        {"callbacks": [st_callback]}
-                    )
-                    output = response["output"]
-                    st.markdown(output)
+                    response = agent.run(user_input, callbacks=[st_callback])
+                    st.markdown(response)
                     
                     # Add assistant response to chat history
-                    st.session_state.messages.append({"role": "assistant", "content": output})
+                    st.session_state.messages.append({"role": "assistant", "content": response})
                     
                 except Exception as e:
                     error_msg = f"Sorry, I encountered an error: {str(e)}"
